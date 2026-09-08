@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitorador de Estufas - Brasformer</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- MQTT e Chart.js -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    :root {
+      /* Fundo escuro em tons de azul naval */
+      --bg-main: #0a111a;
+      --bg-surface: #0f1a26;
+      --bg-card: #152435;
+      --border: #1e354d;
+
+      /* Identidade Visual Brasformer */
+      --primary: #f26522;         /* Laranja Brasformer */
+      --primary-hover: #d85415;   /* Laranja escurecido */
+      --secondary: #003366;       /* Azul Escuro Institucional */
+      --secondary-accent: #164e87;/* Azul intermediário */
+      
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --text: #f3f4f6;
+      --text-muted: #8da4be;
+      --font-sans: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background-color: var(--bg-main); color: var(--text); font-family: var(--font-sans); min-height: 100vh; display: flex; flex-direction: column; }
+
+    /* Modal de Autenticação */
+    #loginModal {
+      position: fixed; inset: 0; background: rgba(10, 17, 26, 0.96); backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px;
+    }
+    .login-card {
+      background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 32px; width: 100%; max-width: 440px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+    }
+    .login-header { text-align: center; margin-bottom: 24px; }
+    .login-header img { height: 48px; width: auto; object-fit: contain; margin-bottom: 16px; }
+    .login-header h2 { font-size: 20px; font-weight: 700; color: #fff; }
+    .login-header p { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+    .form-input {
+      width: 100%; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 14px; color: var(--text); font-family: var(--font-sans); font-size: 14px;
+    }
+    .form-input:focus { outline: none; border-color: var(--primary); }
+    .btn-login {
+      width: 100%; background: var(--primary); color: #fff; border: none; border-radius: 8px;
+      padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 8px; transition: background 0.2s;
+    }
+    .btn-login:hover { background: var(--primary-hover); }
+
+    /* Cabeçalho */
+    header {
+      background: var(--bg-surface); border-bottom: 1px solid var(--border); padding: 16px 32px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .brand { display: flex; align-items: center; gap: 16px; }
+    .brand-logo { height: 38px; width: auto; object-fit: contain; display: block; }
+    .brand h1 { font-size: 18px; font-weight: 700; color: #fff; }
+
+    .header-actions { display: flex; align-items: center; gap: 16px; }
+    .status-pill {
+      display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 20px;
+      font-size: 12px; font-weight: 600; font-family: var(--font-mono); background: var(--bg-card); border: 1px solid var(--border);
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+    .status-dot.online { background: var(--success); box-shadow: 0 0 10px var(--success); }
+
+    .btn-logout {
+      background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+      padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-logout:hover { color: var(--danger); border-color: var(--danger); }
+
+    main { padding: 32px; flex-grow: 1; max-width: 1400px; margin: 0 auto; width: 100%; }
+
+    /* Status Bar Top */
+    .system-banner {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;
+    }
+    .meta-box {
+      background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px;
+    }
+    .meta-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; }
+    .meta-value { font-family: var(--font-mono); font-size: 15px; font-weight: 600; }
+
+    /* Cards Sensores */
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .sensor-card {
+      background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px;
+      border-left: 4px solid var(--primary);
+    }
+    .sensor-title { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; }
+    .temp-display { font-family: var(--font-mono); font-size: 36px; font-weight: 700; color: #fff; }
+
+    /* Área do Gráfico */
+    .chart-section {
+      background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 24px; margin-bottom: 24px;
+    }
+    .chart-container { position: relative; height: 350px; width: 100%; }
+
+    /* Painel de Controle e Download */
+    .panel-section {
+      background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px;
+    }
+    .section-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; color: #fff; }
+    
+    .commands-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+    .control-box { display: flex; flex-direction: column; gap: 10px; }
+    .btn-row { display: flex; gap: 10px; }
+    .btn {
+      padding: 10px 18px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn-green { background: var(--success); color: #000; }
+    .btn-red { background: var(--danger); color: #fff; }
+    .btn-orange { background: var(--primary); color: #fff; }
+    .btn-blue { background: var(--secondary-accent); color: #fff; }
+
+    .input-addon { display: flex; gap: 8px; }
+    .input-addon input { flex-grow: 1; }
+
+    select.form-input { cursor: pointer; }
+    .download-status { font-size: 13px; font-family: var(--font-mono); color: var(--warning); margin-top: 4px; }
+
+    footer {
+      border-top: 1px solid var(--border); padding: 16px; font-size: 12px; color: var(--text-muted); text-align: center; font-family: var(--font-mono);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- MODAL DE AUTENTICAÇÃO -->
+  <div id="loginModal">
+    <div class="login-card">
+      <div class="login-header">
+        <img src="https://brasformer.com.br/wp-content/uploads/2024/01/logo-novo-brasformer.svg" alt="Brasformer Logo">
+        <h2>Acesso HiveMQ Cloud</h2>
+        <p>Informe as credenciais do cluster para autenticar o painel.</p>
+      </div>
+      <form id="loginForm" onsubmit="conectarComCredenciais(event)">
+        <div class="form-group">
+          <label>Broker Host (WSS)</label>
+          <input type="text" id="hostInput" class="form-input" placeholder="ex: cluster.s1.eu.hivemq.cloud" required>
+        </div>
+        <div class="form-group">
+          <label>Usuário MQTT</label>
+          <input type="text" id="userInput" class="form-input" placeholder="usuario" required>
+        </div>
+        <div class="form-group">
+          <label>Senha</label>
+          <input type="password" id="passInput" class="form-input" placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn-login"><i class="fa-solid fa-right-to-bracket"></i> Conectar ao Hub</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- CABEÇALHO -->
+  <header>
+    <div class="brand">
+      <img src="https://brasformer.com.br/wp-content/uploads/2024/01/logo-novo-brasformer.svg" alt="Brasformer Logo" class="brand-logo">
+      <h1>Monitoramento de estufas</h1>
+    </div>
+    <div class="header-actions">
+      <div class="status-pill">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Desconectado</span>
+      </div>
+      <button class="btn-logout" onclick="logout()"><i class="fa-solid fa-arrow-right-from-bracket"></i> Sair</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Metadados de Sistema -->
+    <div class="system-banner">
+      <div class="meta-box">
+        <div class="meta-label">Status do Log SD</div>
+        <div class="meta-value" id="statusLogSD">--</div>
+      </div>
+      <div class="meta-box">
+        <div class="meta-label">Timestamp de Início</div>
+        <div class="meta-value" id="timestampInicio">--</div>
+      </div>
+      <div class="meta-box">
+        <div class="meta-label">Duração do Ensaio</div>
+        <div class="meta-value" id="tempoEnsaio">0 s</div>
+      </div>
+    </div>
+
+    <!-- Cards Sensores -->
+    <div class="grid" id="sensorGrid">
+      <div class="sensor-card">
+        <div class="sensor-title">Aguardando telemetria...</div>
+        <div class="temp-display">--.- °C</div>
+      </div>
+    </div>
+
+    <!-- Gráfico de Linhas -->
+    <section class="chart-section">
+      <h2 class="section-title"><i class="fa-solid fa-chart-line"></i> Distribuição Térmica em Tempo Real</h2>
+      <div class="chart-container">
+        <canvas id="tempChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Gerenciador de Arquivos do Cartão SD e Comandos -->
+    <section class="panel-section">
+      <h2 class="section-title"><i class="fa-solid fa-hard-drive"></i> Gestão do Cartão SD (Download Remoto)</h2>
+      <div class="commands-grid">
+        
+        <div class="control-box">
+          <label class="form-group label">Arquivos no SD</label>
+          <div class="input-addon">
+            <select id="fileSelect" class="form-input">
+              <option value="">Clique em Atualizar Lista</option>
+            </select>
+            <button class="btn btn-blue" onclick="solicitarListaArquivos()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+          </div>
+          <div class="btn-row" style="margin-top: 8px;">
+            <button class="btn btn-orange" onclick="baixarArquivoSelecionado()"><i class="fa-solid fa-download"></i> Baixar Arquivo Selecionado</button>
+          </div>
+          <div class="download-status" id="downloadStatus"></div>
+        </div>
+
+        <div class="control-box">
+          <label class="form-group label">Operação de Log Local</label>
+          <div class="btn-row">
+            <button class="btn btn-green" onclick="enviarComando('START')"><i class="fa-solid fa-play"></i> START</button>
+            <button class="btn btn-red" onclick="enviarComando('STOP')"><i class="fa-solid fa-stop"></i> STOP</button>
+          </div>
+          
+          <label class="form-group label" style="margin-top: 10px;">Intervalo de Leitura (ms)</label>
+          <div class="input-addon">
+            <input type="number" id="cmdDelay" class="form-input" placeholder="ex: 10000">
+            <button class="btn btn-blue" onclick="definirDelay()">Definir</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Brasformer &bull; Monitoramento Térmico IoT via WSS Port 8884
+  </footer>
+
+  <script>
+    const TOPIC_TELEM = "estufa/telemetria";
+    const TOPIC_CMD   = "estufa/comandos";
+    const TOPIC_FILE  = "estufa/arquivo_download";
+    const WSS_PORT    = 8884;
+
+    let client = null;
+    let chart = null;
+
+    let isDownloading = false;
+    let fileBuffer = "";
+    let selectedFileName = "";
+
+    const loginModal = document.getElementById("loginModal");
+    const statusDot = document.getElementById("statusDot");
+    const statusText = document.getElementById("statusText");
+    const grid = document.getElementById("sensorGrid");
+    const statusLogSD = document.getElementById("statusLogSD");
+    const timestampInicio = document.getElementById("timestampInicio");
+    const tempoEnsaio = document.getElementById("tempoEnsaio");
+    const fileSelect = document.getElementById("fileSelect");
+    const downloadStatus = document.getElementById("downloadStatus");
+
+    // Paleta de Cores Brasformer (Laranja, Azuis e Destaques)
+    const sensorColors = ["#f26522", "#38bdf8", "#fb923c", "#60a5fa", "#f59e0b", "#93c5fd"];
+
+    function initChart() {
+      const ctx = document.getElementById('tempChart').getContext('2d');
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [] },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          scales: {
+            x: {
+              grid: { color: '#1e354d' },
+              ticks: { color: '#8da4be', font: { family: 'JetBrains Mono' } }
+            },
+            y: {
+              grid: { color: '#1e354d' },
+              ticks: { color: '#8da4be', font: { family: 'JetBrains Mono' } }
+            }
+          },
+          plugins: {
+            legend: {
+              labels: { color: '#f3f4f6', font: { family: 'Inter' } }
+            }
+          }
+        }
+      });
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      initChart();
+      const savedHost = localStorage.getItem("mqtt_host");
+      const savedUser = localStorage.getItem("mqtt_user");
+      const savedPass = localStorage.getItem("mqtt_pass");
+
+      if (savedHost && savedUser && savedPass) {
+        document.getElementById("hostInput").value = savedHost;
+        document.getElementById("userInput").value = savedUser;
+        document.getElementById("passInput").value = savedPass;
+        iniciarConexaoMQTT(savedHost, savedUser, savedPass);
+      }
+    });
+
+    function conectarComCredenciais(e) {
+      e.preventDefault();
+      const host = document.getElementById("hostInput").value.trim();
+      const user = document.getElementById("userInput").value.trim();
+      const pass = document.getElementById("passInput").value.trim();
+
+      localStorage.setItem("mqtt_host", host);
+      localStorage.setItem("mqtt_user", user);
+      localStorage.setItem("mqtt_pass", pass);
+
+      iniciarConexaoMQTT(host, user, pass);
+    }
+
+    function iniciarConexaoMQTT(host, user, pass) {
+      statusText.textContent = "Conectando...";
+      statusDot.className = "status-dot";
+
+      client = mqtt.connect(`wss://${host}:${WSS_PORT}/mqtt`, {
+        username: user,
+        password: pass,
+        clean: true,
+        connectTimeout: 5000
+      });
+
+      client.on("connect", () => {
+        statusDot.className = "status-dot online";
+        statusText.textContent = "Online";
+        loginModal.style.display = "none";
+        client.subscribe(TOPIC_TELEM);
+        client.subscribe(TOPIC_FILE);
+      });
+
+      client.on("error", () => {
+        statusDot.className = "status-dot";
+        statusText.textContent = "Erro";
+        alert("Falha na conexão. Verifique suas credenciais.");
+      });
+
+      client.on("close", () => {
+        statusDot.className = "status-dot";
+        statusText.textContent = "Desconectado";
+      });
+
+      client.on("message", (topic, message) => {
+        const payloadStr = message.toString();
+
+        if (topic === TOPIC_TELEM) {
+          try {
+            const data = JSON.parse(payloadStr);
+            renderizarTelemetria(data);
+          } catch (e) {
+            console.error(e);
+          }
+        } 
+        else if (topic === TOPIC_FILE) {
+          processarMensagemArquivo(payloadStr);
+        }
+      });
+    }
+
+    function renderizarTelemetria(data) {
+      timestampInicio.textContent = data.timestamp || "--";
+      tempoEnsaio.textContent = `${(data.tempo_ms / 1000).toFixed(0)} s (${data.tempo_ms} ms)`;
+
+      if (data.salvando) {
+        statusLogSD.textContent = "GRAVANDO";
+        statusLogSD.style.color = "var(--success)";
+      } else {
+        statusLogSD.textContent = "PARADO";
+        statusLogSD.style.color = "var(--text-muted)";
+      }
+
+      grid.innerHTML = "";
+      data.sensores.forEach((s) => {
+        const card = document.createElement("div");
+        card.className = "sensor-card";
+        card.innerHTML = `
+          <div class="sensor-title">${s.nome}</div>
+          <div class="temp-display">${s.temp.toFixed(2)} <small style="font-size: 18px; color: var(--text-muted);">°C</small></div>
+        `;
+        grid.appendChild(card);
+      });
+
+      const timeLabel = new Date().toLocaleTimeString();
+      if (chart.data.labels.length > 25) {
+        chart.data.labels.shift();
+      }
+      chart.data.labels.push(timeLabel);
+
+      data.sensores.forEach((s, idx) => {
+        let dataset = chart.data.datasets.find(d => d.label === s.nome);
+        if (!dataset) {
+          dataset = {
+            label: s.nome,
+            data: [],
+            borderColor: sensorColors[idx % sensorColors.length],
+            backgroundColor: 'transparent',
+            tension: 0.2
+          };
+          chart.data.datasets.push(dataset);
+        }
+        if (dataset.data.length > 25) {
+          dataset.data.shift();
+        }
+        dataset.data.push(s.temp);
+      });
+
+      chart.update();
+    }
+
+    function solicitarListaArquivos() {
+      enviarComando("LISTFILES");
+      downloadStatus.textContent = "Solicitando lista ao SD...";
+    }
+
+    function processarMensagemArquivo(payload) {
+      try {
+        const data = JSON.parse(payload);
+        
+        if (data.tipo === "lista_arquivos") {
+          fileSelect.innerHTML = "";
+          data.arquivos.forEach(arq => {
+            const opt = document.createElement("option");
+            opt.value = arq;
+            opt.textContent = arq;
+            fileSelect.appendChild(opt);
+          });
+          downloadStatus.textContent = "Lista atualizada com sucesso.";
+          return;
+        }
+
+        if (data.tipo === "inicio_arquivo") {
+          isDownloading = true;
+          fileBuffer = "";
+          downloadStatus.textContent = "Recebendo dados do arquivo...";
+          return;
+        }
+
+        if (data.tipo === "fim_arquivo") {
+          isDownloading = false;
+          downloadStatus.textContent = "Download concluído! Salvando...";
+          salvarArquivoNoNavegador(fileBuffer, selectedFileName);
+          return;
+        }
+
+        if (data.tipo === "erro") {
+          isDownloading = false;
+          downloadStatus.textContent = "Erro: " + data.msg;
+          return;
+        }
+      } catch (e) {
+        if (isDownloading) {
+          fileBuffer += payload;
+          downloadStatus.textContent = `Recebendo... (${fileBuffer.length} bytes)`;
+        }
+      }
+    }
+
+    function baixarArquivoSelecionado() {
+      const arq = fileSelect.value;
+      if (!arq) {
+        alert("Selecione um arquivo primeiro.");
+        return;
+      }
+      selectedFileName = arq.split('/').pop();
+      downloadStatus.textContent = `Solicitando ${selectedFileName}...`;
+      enviarComando(`GETFILE=${arq}`);
+    }
+
+    function salvarArquivoNoNavegador(conteudo, nomeArquivo) {
+      const blob = new Blob([conteudo], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = nomeArquivo;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function enviarComando(cmd) {
+      if (client && client.connected) {
+        client.publish(TOPIC_CMD, cmd);
+      }
+    }
+
+    function definirDelay() {
+      const val = document.getElementById("cmdDelay").value;
+      if (val) {
+        enviarComando(`DELAY=${val}`);
+        document.getElementById("cmdDelay").value = "";
+      }
+    }
+
+    function logout() {
+      localStorage.clear();
+      if (client) client.end();
+      location.reload();
+    }
+  </script>
+</body>
+</html>
